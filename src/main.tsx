@@ -26,6 +26,7 @@ import {
 import { configured, login, logout } from "./firebase";
 import { useStore } from "./useStore";
 import "./style.css";
+import { InstrumentPanel, useCabinMotion } from "./InstrumentPanel";
 const updateSW = registerSW({
   onNeedRefresh() {
     if (confirm("新しいバージョンがあります。更新しますか？"))
@@ -122,10 +123,10 @@ function Chart({
   const min = values.length ? Math.floor(Math.min(...values) - 1) : 50,
     max = values.length ? Math.ceil(Math.max(...values) + 1) : 80;
   return (
-    <section className="card chart">
+    <InstrumentPanel className="card chart">
       <div className="section-top">
         <div>
-          <span className="eyebrow">YOUR PROGRESS</span>
+          <span className="eyebrow">02 / MASS TELEMETRY</span>
           <h2>体重の推移</h2>
         </div>
         <div className="seg">
@@ -166,28 +167,28 @@ function Chart({
             >
               <CartesianGrid
                 vertical={false}
-                stroke="#303a31"
+                stroke="#3a3a35"
                 strokeDasharray="3 5"
               />
               <XAxis
                 dataKey="date"
                 tickFormatter={(d) => d.slice(5).replace("-", "/")}
                 minTickGap={40}
-                tick={{ fill: "#929d95", fontSize: 11 }}
+                tick={{ fill: "#a7a79e", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
                 domain={[min, max]}
-                tick={{ fill: "#929d95", fontSize: 11 }}
+                tick={{ fill: "#a7a79e", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
               <Tooltip
                 contentStyle={{
-                  background: "#202922",
-                  border: "1px solid #435044",
-                  borderRadius: 12,
+                  background: "#131311",
+                  border: "1px solid #8b8b7c",
+                  borderRadius: 1,
                 }}
                 labelFormatter={(l) => String(l)}
                 formatter={(v) => [
@@ -200,14 +201,14 @@ function Chart({
                 data.target <= max && (
                   <ReferenceLine
                     y={data.target}
-                    stroke="#8ea681"
+                    stroke="#96968c"
                     strokeDasharray="4 4"
                   />
                 )}
               <Line
                 type="linear"
                 dataKey={mode}
-                stroke="#b6e3a2"
+                stroke="#deded0"
                 strokeWidth={2.5}
                 dot={mode === "raw" ? { r: 3 } : false}
                 connectNulls={false}
@@ -226,7 +227,7 @@ function Chart({
       <p className="note">
         7日平均は直近7暦日のうち、3日以上の測定で表示されます。
       </p>
-    </section>
+    </InstrumentPanel>
   );
 }
 function Stamps({
@@ -241,8 +242,25 @@ function Stamps({
   onMove: (d: string) => void;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
+  const gesture = useRef<{
+    x: number;
+    y: number;
+    scroll: number;
+    id: number;
+    inside: boolean;
+  } | null>(null);
+  const suppressTap = useRef(false);
+  const [pressed, setPressed] = useState("");
   useEffect(() => {
-    if (scroll.current) scroll.current.scrollLeft = scroll.current.scrollWidth;
+    const el = scroll.current;
+    if (!el) return;
+    const align = () => {
+      el.scrollLeft = el.scrollWidth;
+    };
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [end]);
   const days = Array.from({ length: 7 }, (_, i) => shift(end, i - 6));
   const habits = data.habits.filter(
@@ -267,13 +285,63 @@ function Stamps({
       }
     }
   return (
-    <section className="card stamps">
+    <InstrumentPanel
+      className="card stamps"
+      onPointerDown={(e) => {
+        if (!e.isPrimary) {
+          gesture.current = null;
+          return;
+        }
+        const target = e.target as HTMLElement;
+        if (target.closest(".week-nav")) return;
+        suppressTap.current = false;
+        gesture.current = {
+          x: e.clientX,
+          y: e.clientY,
+          scroll: scroll.current?.scrollLeft ?? 0,
+          id: e.pointerId,
+          inside: !!target.closest(".table-scroll"),
+        };
+      }}
+      onPointerMove={(e) => {
+        const g = gesture.current;
+        if (g && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 10)
+          suppressTap.current = true;
+      }}
+      onPointerCancel={() => {
+        gesture.current = null;
+        suppressTap.current = true;
+      }}
+      onPointerUp={(e) => {
+        const g = gesture.current;
+        gesture.current = null;
+        if (!g || g.id !== e.pointerId) return;
+        const dx = e.clientX - g.x,
+          dy = e.clientY - g.y,
+          el = scroll.current;
+        if (Math.abs(dx) < 65 || Math.abs(dx) < Math.abs(dy) * 2) return;
+        if (g.inside && el) {
+          const atBoundary =
+            dx > 0
+              ? g.scroll <= 2
+              : g.scroll >= el.scrollWidth - el.clientWidth - 2;
+          if (!atBoundary || Math.abs(el.scrollLeft - g.scroll) > 4) return;
+        }
+        onMove(
+          dx < 0
+            ? shift(end, 7) > today()
+              ? today()
+              : shift(end, 7)
+            : shift(end, -7),
+        );
+      }}
+    >
       <div className="section-top">
         <div>
-          <span className="eyebrow">ONE DAY AT A TIME</span>
+          <span className="eyebrow">04 / ROUTINE CONTROL</span>
           <h2>習慣のスタンプカード</h2>
         </div>
-        <span className="pill">7 DAYS</span>
+        <span className="pill">MANUAL INPUT / 7D</span>
       </div>
       <div className="week-nav">
         <button aria-label="前の週" onClick={() => onMove(shift(end, -7))}>
@@ -329,16 +397,23 @@ function Stamps({
                         disabled={d > today() || d < h.created}
                         title={`${d} ${label}`}
                         aria-label={`${d} ${label}：${v === null ? "未記録" : v ? "達成" : "未達成"}`}
-                        className={`stamp ${v === true ? "done" : v === false ? "miss" : "unset"}`}
-                        onClick={() =>
+                        className={`stamp ${v === true ? "done" : v === false ? "miss" : "unset"} ${pressed === `${d}:${h.id}` ? "just-pressed" : ""}`}
+                        aria-pressed={v === true}
+                        onClick={() => {
+                          if (suppressTap.current) {
+                            suppressTap.current = false;
+                            return;
+                          }
+                          setPressed(`${d}:${h.id}`);
                           onChange(d, {
                             habits: {
                               [h.id]:
                                 v === null ? true : v === true ? false : null,
                             },
                             labels: { [h.id]: label },
-                          })
-                        }
+                          });
+                        }}
+                        onAnimationEnd={() => setPressed("")}
                       >
                         {v === true ? "✓" : v === false ? "−" : "○"}
                       </button>
@@ -372,12 +447,13 @@ function Stamps({
       <p className="note">
         ○ 未記録　 ✓ 達成　 − 未達成 · タップで切り替え
         <br />
-        過去のセルを長押しすると、記録当時の項目名を確認できます。
+        週の左右スワイプは余白で操作。表の中は横スクロールできます。
       </p>
-    </section>
+    </InstrumentPanel>
   );
 }
 function App() {
+  useCabinMotion();
   const s = useStore(),
     [page, setPage] = useState("home"),
     [date, setDate] = useState(today()),
@@ -441,9 +517,10 @@ function App() {
     return (
       <div className="welcome">
         <div className="brand">
-          d<span> {APP_NAME}</span>
+          <b className="brand-code">D / 01</b>
+          <span> {APP_NAME}</span>
         </div>
-        <span className="eyebrow">SMALL STEPS. EVERY DAY.</span>
+        <span className="eyebrow">DAILY / PERSONAL OBSERVATORY</span>
         <h1>
           毎日の積み重ねが、
           <br />
@@ -455,7 +532,8 @@ function App() {
           無理なく記録して、自分のペースで続けよう。
         </p>
         <div className="welcome-mark">
-          ↗<span>ONE DAY AT A TIME</span>
+          <span className="dial" aria-hidden="true" />
+          <span>PERSONAL LOG / READY</span>
         </div>
         {configured ? (
           <>
@@ -499,7 +577,7 @@ function App() {
             setPage("home");
           }}
         >
-          d
+          <b className="brand-code">D / 01</b>
           <span>
             {" "}
             {APP_NAME}
@@ -508,9 +586,9 @@ function App() {
         </a>
         <nav>
           {[
-            ["home", "⌂", "ホーム"],
-            ["history", "↗", "履歴・分析"],
-            ["settings", "⚙", "設定"],
+            ["home", "01", "ホーム"],
+            ["history", "02", "履歴・分析"],
+            ["settings", "03", "設定"],
           ].map(([key, icon, label]) => (
             <button
               key={key}
@@ -519,6 +597,7 @@ function App() {
                 if (key === "home") setDate(today());
               }}
               className={page === key ? "current" : ""}
+              aria-current={page === key ? "page" : undefined}
             >
               <span>{icon}</span>
               {label}
@@ -526,20 +605,20 @@ function App() {
           ))}
         </nav>
         <div className="aside-foot">
-          <div className="little-leaf">↗</div>
+          <div className="little-leaf">SYS / 01</div>
           <p>昨日より、ほんの少し。</p>
           <small>自分のペースで続けよう。</small>
         </div>
       </aside>
-      <main>
-        <header>
+      <main data-screen={page}>
+        <header key={page}>
           <div>
             <span className="eyebrow">
               {page === "home"
-                ? "MY DAILY ROUTINE"
+                ? "PERSONAL OBSERVATION / 01"
                 : page === "history"
-                  ? "LOOK BACK, MOVE FORWARD"
-                  : "MAKE IT YOURS"}
+                  ? "ARCHIVE / 02"
+                  : "SYSTEM CONFIG / 03"}
             </span>
             <h1>
               {page === "home"
@@ -556,7 +635,7 @@ function App() {
                 ? "オフライン・同期待ち"
                 : s.status || (s.local ? "ローカルモード" : "同期済み")}
             </small>
-            <span className="avatar">{s.user?.displayName?.[0] ?? "D"}</span>
+            <span className="avatar">{s.user?.displayName?.[0] ?? "01"}</span>
           </div>
         </header>
         {s.error && (
@@ -613,7 +692,7 @@ function App() {
                 </strong>
               </div>
             </div>
-            <section className="card">
+            <InstrumentPanel className="card">
               <div className="section-top">
                 <h2>記録カレンダー</h2>
                 <input
@@ -663,7 +742,7 @@ function App() {
                   },
                 )}
               </div>
-            </section>
+            </InstrumentPanel>
             <h2 className="date-heading">
               {date.replaceAll("-", " / ")} の記録
             </h2>
@@ -679,7 +758,7 @@ function App() {
         )}
         {page === "settings" && (
           <>
-            <section className="card">
+            <InstrumentPanel className="card">
               <span className="eyebrow">PROFILE</span>
               <h2>あなたの目標</h2>
               <label className="target">
@@ -723,8 +802,8 @@ function App() {
               >
                 ログアウト
               </button>
-            </section>
-            <section className="card">
+            </InstrumentPanel>
+            <InstrumentPanel className="card">
               <span className="eyebrow">YOUR HABITS</span>
               <h2>行動チェック項目</h2>
               <p className="note">
@@ -845,8 +924,8 @@ function App() {
                 </select>
                 <button type="submit">＋ 追加</button>
               </form>
-            </section>
-            <section className="card">
+            </InstrumentPanel>
+            <InstrumentPanel className="card">
               <span className="eyebrow">BACKUP</span>
               <h2>記録を大切に</h2>
               <p>
@@ -894,16 +973,16 @@ function App() {
               <p className="note">
                 同じ日付はバックアップの内容で更新します。ほかの日付の記録は保持します。
               </p>
-            </section>
+            </InstrumentPanel>
           </>
         )}
         <footer>
-          SMALL STEPS. EVERY DAY. <span>{APP_NAME}</span>
+          DAILY / PERSONAL OBSERVATORY <span>{APP_NAME}</span>
         </footer>
       </main>
       {pending && (
         <div className="modal-backdrop">
-          <section
+          <InstrumentPanel
             role="dialog"
             aria-modal="true"
             aria-labelledby="restore-title"
@@ -927,7 +1006,7 @@ function App() {
               復元する
             </button>
             <button onClick={() => setPending(null)}>キャンセル</button>
-          </section>
+          </InstrumentPanel>
         </div>
       )}
     </div>
@@ -947,10 +1026,13 @@ function Weight({
   weight: (v: string) => void;
 }) {
   return (
-    <section className="card weight">
+    <InstrumentPanel className="card weight">
+      <span className="weight-save" role="status">
+        {s.status || "自動保存"}
+      </span>
       <div>
         <span className="eyebrow">
-          {date === today() ? "TODAY’S WEIGHT" : date}
+          {date === today() ? "01 / BODY MASS" : date}
         </span>
         <h2>{date === today() ? "今日の体重" : "この日の体重"}</h2>
         <div className="weight-input">
@@ -977,14 +1059,23 @@ function Weight({
           </strong>
         </div>
         <div>
-          <small>目標体重</small>
+          <small>
+            目標まで{" "}
+            <span className="target-caption">
+              目標 {pretty(s.data.target)} kg
+            </span>
+          </small>
           <strong>
-            {pretty(s.data.target)}
+            {pretty(
+              r.weight !== null && s.data.target !== null
+                ? r.weight - s.data.target
+                : null,
+            )}
             <span> kg</span>
           </strong>
         </div>
       </div>
-    </section>
+    </InstrumentPanel>
   );
 }
 function MealCard({
@@ -997,13 +1088,15 @@ function MealCard({
   s: ReturnType<typeof useStore>;
 }) {
   return (
-    <section className="card meals">
+    <InstrumentPanel className="card meals">
       <div className="section-top">
         <div>
-          <span className="eyebrow">FOOD JOURNAL</span>
+          <span className="eyebrow">03 / NUTRITION LOG</span>
           <h2>{date === today() ? "今日の食事" : "この日の食事"}</h2>
         </div>
-        <span className="subtle">自動保存</span>
+        <span className="subtle" role="status">
+          {s.status || "自動保存"}
+        </span>
       </div>
       <div className="meal-grid">
         {meals.map(([key, label, icon]) => (
@@ -1020,7 +1113,7 @@ function MealCard({
           </label>
         ))}
       </div>
-    </section>
+    </InstrumentPanel>
   );
 }
 createRoot(document.getElementById("root")!).render(
