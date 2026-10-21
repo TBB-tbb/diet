@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+  function weight(w) { return w == null || (w is number && w >= 20 && w <= 400); }
+  match /users/{uid}/profile/settings {
+   allow read: if owner(uid);
+   allow create, update: if owner(uid) && request.resource.data.keys().hasOnly(['target']) && weight(request.resource.data.target);
+  }
+  match /users/{uid}/habits/{id} {
+   allow read: if owner(uid);
+   allow create, update: if owner(uid) && request.resource.data.keys().hasOnly(['id','name','kind','active','deleted','created','order']) && request.resource.data.id == id && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80 && request.resource.data.kind in ['habit','medication'] && request.resource.data.active is bool && request.resource.data.deleted is bool && request.resource.data.created is string && (!('order' in request.resource.data) || request.resource.data.order is int) && (resource == null || request.resource.data.kind == resource.data.kind);
+  }
+  match /users/{uid}/dailyRecords/{date} {
+   allow read: if owner(uid);
+   allow create, update: if owner(uid) && date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') && request.resource.data.date == date && request.resource.data.keys().hasOnly(['date','weight','meals','habits','labels']) && (!('weight' in request.resource.data) || weight(request.resource.data.weight)) && (!('habits' in request.resource.data) || request.resource.data.habits is map && request.resource.data.habits.size() <= 100 && request.resource.data.habits.values().hasOnly([true,false,null])) && (!('labels' in request.resource.data) || request.resource.data.labels is map && request.resource.data.labels.size() <= 100) && (!('meals' in request.resource.data) || validMeals(request.resource.data.meals));
+   function validMeals(m) { return m is map && m.keys().hasOnly(['breakfast','lunch','dinner','snack']) && (!('breakfast' in m) || m.breakfast is string && m.breakfast.size() <= 2000) && (!('lunch' in m) || m.lunch is string && m.lunch.size() <= 2000) && (!('dinner' in m) || m.dinner is string && m.dinner.size() <= 2000) && (!('snack' in m) || m.snack is string && m.snack.size() <= 2000); }
+  }
+ }
+}
+
